@@ -1,0 +1,67 @@
+services:
+  # Data ingestion container - populates database from Wikipedia (runs once)
+  data-ingestion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: museum-data-ingestion
+    command: ["uv", "run", "python", "scripts/init_db.py"]
+    volumes:
+      - museum-data:/data
+    environment:
+      - DATABASE_PATH=/data/museum_data.db
+      - MIN_VISITORS=2000000
+    networks:
+      - museum-network
+
+  # Main API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: museum-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - museum-data:/data
+    environment:
+      - DATABASE_PATH=/data/museum_data.db
+      - MIN_VISITORS=2000000
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      data-ingestion:
+        condition: service_completed_successfully
+    networks:
+      - museum-network
+
+  # Jupyter notebook service (consumes API only)
+  jupyter:
+    image: quay.io/jupyter/scipy-notebook:2025-12-31
+    container_name: museum-jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+    environment:
+      - JUPYTER_TOKEN=museum_regression
+      - API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - museum-network
+
+volumes:
+  museum-data:
+    driver: local
+
+networks:
+  museum-network:
+    driver: bridge
