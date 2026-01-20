@@ -114,7 +114,6 @@ class Database:
                 # Update visitor count if changed
                 if existing.visitors != museum.visitors:
                     existing.visitors = museum.visitors
-                    existing.visitor_year = museum.year
                     session.commit()
                 return existing
 
@@ -123,7 +122,6 @@ class Database:
                 name=museum.name,
                 museum_type=museum.museum_type,
                 visitors=museum.visitors,
-                visitor_year=museum.year,
                 wikipedia_url=museum.wikipedia_url,
                 city_id=city_model.id,
             )

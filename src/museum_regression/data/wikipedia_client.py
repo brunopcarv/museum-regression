@@ -27,7 +27,6 @@ class Museum:
     city: str
     country: str
     visitors: int  # Annual visitors
-    year: int  # Year of visitor count
     museum_type: str = ""
     wikipedia_url: str = ""
 
@@ -179,7 +178,6 @@ class WikipediaClient:
                             city=city,
                             country=country,
                             visitors=visitors,
-                            year=2023,  # Default, can be parsed from table if available
                             wikipedia_url=wiki_url,
                         )
                         museums.append(museum)
@@ -283,7 +281,7 @@ class WikipediaClient:
                 data = row.find("td")
                 if data:
                     pop = self._parse_number(data.get_text())
-                    if pop and pop > 10000:  # Sanity check
+                    if pop and pop > 1000:  # Sanity check
                         return pop
 
                 # Check next sibling row for the actual number
@@ -292,7 +290,7 @@ class WikipediaClient:
                     data = next_row.find("td")
                     if data:
                         pop = self._parse_number(data.get_text())
-                        if pop and pop > 10000:
+                        if pop and pop > 1000:
                             return pop
 
         # Fallback: search for any large number near "population" text
@@ -302,7 +300,7 @@ class WikipediaClient:
         )
         if pop_match:
             pop = self._parse_number(pop_match.group(1))
-            if pop and pop > 10000:
+            if pop and pop > 1000:
                 return pop
 
         return None
