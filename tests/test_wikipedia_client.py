@@ -1,76 +1,81 @@
-"""Tests for Wikipedia data fetching."""
+"""Integration tests for Wikipedia web scraping."""
 
-from unittest.mock import patch
+import pytest
 
-from museum_regression.data.wikipedia_client import City, Museum, WikipediaClient
+from museum_regression.data.wikipedia_client import WikipediaClient
 
 
-class TestWikipediaClient:
-    """Tests for Wikipedia data fetching."""
+@pytest.mark.integration
+class TestWikipediaClientIntegration:
+    """Integration tests that verify web scraping against Wikipedia pages."""
 
-    def test_museum_dataclass_creation(self):
-        """Test Museum dataclass creation with defaults."""
-        museum = Museum(
-            name="Louvre",
-            city="Paris",
-            country="France",
-            visitors=7_800_000,
-        )
-        assert museum.name == "Louvre"
-        assert museum.museum_type == ""  # Default
-
-    def test_city_dataclass_creation(self):
-        """Test City dataclass creation with defaults."""
-        city = City(name="Paris", country="France", population=2_100_000)
-        assert city.name == "Paris"
-        assert city.population_year is None  # Default
-
-    def test_client_initialization(self):
-        """Test WikipediaClient initialization."""
-        client = WikipediaClient(min_visitors=1_000_000)
-        assert client.min_visitors == 1_000_000
-
-    def test_parse_number_formats(self):
-        """Test parsing various number formats."""
-        client = WikipediaClient()
-        assert client._parse_number("1,000,000") == 1_000_000
-        assert client._parse_number("5000000") == 5_000_000
-        assert client._parse_number("1 000 000") == 1_000_000
-        assert client._parse_number("5,000,000[1]") == 5_000_000  # With footnote
-        assert client._parse_number("") is None
-        assert client._parse_number("no numbers") is None
-
-    def test_parse_museum_table(self):
-        """Test parsing museum table HTML."""
-        client = WikipediaClient(min_visitors=2_000_000)
-        html = """
-        <table class="wikitable">
-            <tr><th>Museum</th><th>City</th><th>Visitors</th></tr>
-            <tr>
-                <td><a href="/wiki/Louvre">Louvre</a></td>
-                <td>Paris, France</td>
-                <td>7,800,000</td>
-            </tr>
-            <tr>
-                <td>Small Museum</td>
-                <td>Small Town, Country</td>
-                <td>500,000</td>
-            </tr>
-        </table>
-        """
-        museums = client.parse_museum_table(html)
-        assert len(museums) == 1  # Only Louvre meets threshold
-        assert museums[0].name == "Louvre"
-
-    @patch.object(WikipediaClient, "get_museum_list_html")
-    @patch.object(WikipediaClient, "parse_museum_table")
-    def test_fetch_museums(self, mock_parse, mock_get_html):
-        """Test fetching museums from Wikipedia."""
-        mock_get_html.return_value = "<html>test</html>"
-        mock_parse.return_value = [
-            Museum(name="Test", city="City", country="Country", visitors=5_000_000)
-        ]
-        client = WikipediaClient()
+    def test_fetch_all_museums_from_wikipedia(self):
+        """Test fetching all museum data from the actual Wikipedia page."""
+        client = WikipediaClient(min_visitors=0)
         museums = client.fetch_museums()
-        assert len(museums) == 1
-        mock_get_html.assert_called_once()
+
+        # Should find exactly 63 museums in the table
+        # Based on: https://en.wikipedia.org/wiki/List_of_most-visited_museums
+        assert len(museums) == 63, (
+            f"Expected 63 museums in the table, found {len(museums)}"
+        )
+
+        # Verify each museum has required fields populated
+        for museum in museums:
+            assert museum.name
+            assert museum.city
+            assert museum.visitors > 0
+
+        # Check if Louvre is in the list
+        museum_names = [m.name.lower() for m in museums]
+        assert any(
+            "louvre" in name for name in museum_names
+        )
+
+    def test_fetch_museums_with_2m_plus_visitors(self):
+        """Test fetching museums with >= 2M annual visitors."""
+        client = WikipediaClient(min_visitors=2_000_000)
+        museums = client.fetch_museums()
+
+        # Should find exactly 42 museums with >= 2M visitors
+        # Based on: https://en.wikipedia.org/wiki/List_of_most-visited_museums
+        assert len(museums) == 42
+
+        # Verify all museums meet the threshold
+        for museum in museums:
+            assert museum.visitors >= 2_000_000
+
+    def test_fetch_city_population_from_wikipedia(self):
+        """Test fetching city population data from actual Wikipedia pages."""
+        client = WikipediaClient()
+
+        city = client.get_city_population("Paris", "France")
+        assert city is not None
+        assert city.name == "Paris"
+        assert city.country == "France"
+        assert city.population == 2_048_472 # data from https://en.wikipedia.org/wiki/Paris
+
+    def test_fetch_all_city_populations_from_wikipedia(self):
+        """Test fetching population data for all cities hosting museums."""
+        client = WikipediaClient(min_visitors=0)
+        museums = client.fetch_museums()
+
+        # Should have 63 museums
+        assert len(museums) == 63
+
+        # Get unique (city, country) pairs from museums
+        unique_city_country_pairs = {(m.city, m.country) for m in museums}
+
+        # Fetch population data for all cities
+        cities = client.fetch_city_populations(museums)
+
+        # Assert unique (city, country) pairs is 38
+        assert len(unique_city_country_pairs) == 38
+
+        # Assert cities with population data matches unique (city, country) pairs
+        assert len(cities) == len(unique_city_country_pairs)
+
+        # Verify each city has valid population data
+        for city in cities.values():
+            assert city.name
+            assert city.population > 0
